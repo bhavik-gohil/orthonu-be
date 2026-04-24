@@ -12,11 +12,11 @@ async function run() {
         await sequelize.authenticate();
         await sequelize.sync();
 
-        const existing = await AdminUser.findOne({ where: { userType: ADMIN_USER_TYPES.MAIN_ADMIN } });
-        if (existing) {
-            console.log(`Main admin already exists: ${existing.email}`);
-            process.exit(0);
-        }
+        // const existing = await AdminUser.findOne({ where: { userType: ADMIN_USER_TYPES.MAIN_ADMIN } });
+        // if (existing) {
+        //     console.log(`Main admin already exists: ${existing.email}`);
+        //     process.exit(0);
+        // }
 
         const hashedPassword = await bcrypt.hash(SEED_PASSWORD, 10);
         const admin = await AdminUser.create({
