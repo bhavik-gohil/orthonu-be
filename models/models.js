@@ -17,6 +17,7 @@ const Coupon = require('./coupon');
 const CouponUse = require('./couponUse');
 const ProductGroup = require('./productGroup');
 const ProductInProductGroup = require('./productInProductGroup');
+const UserSession = require('./userSession');
 
 module.exports = {
     AdminUser,
@@ -38,5 +39,6 @@ module.exports = {
     CouponUse,
     ProductGroup,
     ProductInProductGroup,
+    UserSession,
 };
 

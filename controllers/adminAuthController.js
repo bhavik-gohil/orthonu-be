@@ -2,7 +2,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const Joi = require("joi");
-const { AdminUser, User, Sequelize } = require("../models");
+const { AdminUser, User, UserSession, Sequelize } = require("../models");
 const { Op } = Sequelize;
 const { ADMIN_USER_TYPES, ADMIN_USER_STATUS, USER_STATUS } = require("../utils/constants");
 
@@ -58,16 +58,16 @@ const login = async (req, res) => {
   if (user.status === "inactive")
     return res.status(403).json({ message: "Account is inactive." });
 
-  // Single-device enforcement: block if already logged in elsewhere
-  if (user.sessionToken) {
-    return res.status(403).json({
-      message: "You are already logged in on another device. Please log out from that device first.",
-    });
-  }
+  // Clear any existing session to allow logging back in if session expired
+  await UserSession.destroy({ where: { userId: user.uid, isAdmin: true } });
 
   // Generate a new session token and persist it
   const sessionToken = crypto.randomUUID();
-  await user.update({ sessionToken });
+  await UserSession.create({
+    userId: user.uid,
+    isAdmin: true,
+    sessionToken
+  });
 
   const token = signToken(user, sessionToken);
 
@@ -165,14 +165,13 @@ const getUsers = async (req, res) => {
   return res.status(200).json(users);
 };
 
-// ─── logout ───────────────────────────────────────────────────────────────────
 const logout = async (req, res) => {
   // Clear the session token from the DB so the admin can log in again
-  if (req.adminUser && req.adminUser.id) {
+  if (req.adminUser && req.adminUser.uid) {
     try {
-      await AdminUser.update({ sessionToken: null }, { where: { id: req.adminUser.id } });
+      await UserSession.destroy({ where: { userId: req.adminUser.uid, isAdmin: true } });
     } catch (err) {
-      console.error("Failed to clear admin sessionToken on logout:", err);
+      console.error("Failed to clear admin session on logout:", err);
     }
   }
   res.clearCookie("admin_token");

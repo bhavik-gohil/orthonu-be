@@ -11,8 +11,6 @@ module.exports = (sequelize) => {
     status: { type: DataTypes.STRING, allowNull: true }, // active/inactive/password_reset_pending
     userType: { type: DataTypes.STRING, allowNull: true }, // main_admin/editor/order_manager
 
-    // Single-device enforcement: stores the active session token
-    sessionToken: { type: DataTypes.STRING, allowNull: true },
   }, {
     timestamps: true,
     indexes: [

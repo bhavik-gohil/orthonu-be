@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { AdminUser } = require('../models');
+const { AdminUser, UserSession } = require('../models');
 
 async function authMiddleware(req, res, next) {
     let token = null;
@@ -18,20 +18,20 @@ async function authMiddleware(req, res, next) {
         try {
             const payload = jwt.verify(cookies.admin_token, process.env.JWT_SECRET);
 
-            // Single-device enforcement: verify the session token matches the DB record
-            const adminRecord = await AdminUser.findOne({
-                where: { id: payload.id },
-                attributes: ['id', 'sessionToken'],
+            // Verify the session token matches the DB record
+            const sessionRecord = await UserSession.findOne({
+                where: { userId: payload.uid, isAdmin: true },
+                attributes: ['sessionToken'],
             });
 
-            if (!adminRecord) {
-                return res.status(401).json({ message: 'Unauthorized' });
+            if (!sessionRecord) {
+                return res.status(401).json({ message: 'Session expired. Please log in again.' });
             }
 
-            if (adminRecord.sessionToken !== payload.sessionToken) {
+            if (sessionRecord.sessionToken !== payload.sessionToken) {
                 // Session was invalidated (logout from another device or account takeover)
                 return res.status(401).json({
-                    message: 'Session expired. Please log in again.',
+                    message: 'Session invalid. Please log in again.',
                 });
             }
 
