@@ -9,7 +9,7 @@ const sendOtpEmail = async (email, code, type) => {
 
     const html = `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-            <h2 style="color: #004AAD; text-align: center;">Orthonu Verification</h2>
+            <h2 style="color: #004AAD; text-align: center;">OrthoNu Verification</h2>
             <p>Hello,</p>
             <p>Your verification code for ${type === 'registration' ? 'account registration' : 'admin login'} is:</p>
             <div style="background: #f4f7ff; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #004AAD; border-radius: 8px; margin: 20px 0;">
