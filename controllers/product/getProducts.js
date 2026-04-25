@@ -26,7 +26,15 @@ const getProducts = async (req, res) => {
             where: whereClause,
             include: [
                 { model: ProductPrice, as: 'prices' },
-                { model: ProductBundle, as: 'bundleItems' },
+                { 
+                    model: ProductBundle, as: 'bundleItems',
+                    include: [
+                        { 
+                            model: Product, as: 'product',
+                            include: [{ model: ProductMedia, as: 'media' }]
+                        }
+                    ]
+                },
                 { model: ProductMedia, as: 'media' },
                 {
                     model: Product, as: 'variants',

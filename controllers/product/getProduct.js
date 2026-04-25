@@ -5,7 +5,15 @@ const getProduct = async (req, res) => {
         const product = await Product.findByPk(req.params.id, {
             include: [
                 { model: ProductPrice, as: 'prices' },
-                { model: ProductBundle, as: 'bundleItems' },
+                { 
+                    model: ProductBundle, as: 'bundleItems',
+                    include: [
+                        { 
+                            model: Product, as: 'product',
+                            include: [{ model: ProductMedia, as: 'media' }]
+                        }
+                    ]
+                },
                 { model: ProductMedia, as: 'media', order: [['displayOrder', 'ASC']] },
                 {
                     model: Product, as: 'variants',

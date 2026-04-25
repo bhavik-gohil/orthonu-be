@@ -15,6 +15,7 @@ module.exports = (sequelize) => {
 
     ProductBundle.associate = (models) => {
         ProductBundle.belongsTo(models.Product, { foreignKey: 'productId', as: 'bundle' });
+        ProductBundle.belongsTo(models.Product, { foreignKey: 'productRefId', as: 'product' });
     };
 
     return ProductBundle;
