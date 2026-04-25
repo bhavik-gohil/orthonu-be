@@ -10,6 +10,7 @@ module.exports = (sequelize) => {
         timestamps: true,
         indexes: [
             { fields: ['productId'] },
+            { fields: ['productRefId'] },
         ],
     });
 

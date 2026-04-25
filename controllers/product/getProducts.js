@@ -17,17 +17,64 @@ const getProducts = async (req, res) => {
             };
         }
 
-        // Add specific UID filter if provided (crucial for product detail pages to avoid loading full catalog)
+        // --- OPTIMIZATION: SINGLE PRODUCT FETCH (BY UID) ---
         if (req.query.uid) {
-            whereClause.uid = req.query.uid;
+            // 1. Fetch the core product first (needed for the ID to fetch associations)
+            const product = await Product.findOne({
+                where: { uid: req.query.uid }
+            });
+
+            if (!product) return res.status(404).json({ error: 'Product not found' });
+
+            const productId = product.id;
+            const variantId = product.variantId;
+
+            // 2. Fetch all associations in PARALLEL
+            const [prices, bundleItems, media, variants, variantCount] = await Promise.all([
+                ProductPrice.findAll({ where: { productId }, attributes: { exclude: ['createdAt', 'updatedAt'] } }),
+                ProductBundle.findAll({ 
+                    where: { productId },
+                    include: [{ 
+                        model: Product, as: 'product',
+                        include: [{ model: ProductMedia, as: 'media' }] 
+                    }]
+                }),
+                ProductMedia.findAll({ 
+                    where: { productId }, 
+                    order: [['displayOrder', 'ASC']] 
+                }),
+                // Only fetch variants if this product belongs to a variant group
+                variantId ? Product.findAll({ 
+                    where: { variantId },
+                    include: [
+                        { model: ProductPrice, as: 'prices' },
+                        { model: ProductMedia, as: 'media' }
+                    ]
+                }) : Promise.resolve([]),
+                // Only count variants if public
+                (!isAdmin && variantId) ? Product.count({ where: { variantId } }) : Promise.resolve(0)
+            ]);
+
+            // 3. Assemble and return
+            const result = {
+                ...product.toJSON(),
+                prices,
+                bundleItems,
+                media,
+                variants,
+                variantCount
+            };
+
+            return res.status(200).json(result);
         }
 
+        // --- STANDARD LISTING FETCH ---
         const products = await Product.findAll({
             where: whereClause,
             include: [
-                { model: ProductPrice, as: 'prices' },
+                { model: ProductPrice, as: 'prices', separate: true },
                 { 
-                    model: ProductBundle, as: 'bundleItems',
+                    model: ProductBundle, as: 'bundleItems', separate: true,
                     include: [
                         { 
                             model: Product, as: 'product',
@@ -35,9 +82,9 @@ const getProducts = async (req, res) => {
                         }
                     ]
                 },
-                { model: ProductMedia, as: 'media' },
+                { model: ProductMedia, as: 'media', separate: true },
                 {
-                    model: Product, as: 'variants',
+                    model: Product, as: 'variants', separate: true,
                     include: [
                         { model: ProductPrice, as: 'prices' },
                         { model: ProductMedia, as: 'media' },
@@ -46,8 +93,6 @@ const getProducts = async (req, res) => {
             ],
             order: [
                 ['createdAt', 'DESC'],
-                [{ model: ProductMedia, as: 'media' }, 'displayOrder', 'ASC'],
-                [{ model: Product, as: 'variants' }, { model: ProductMedia, as: 'media' }, 'displayOrder', 'ASC']
             ],
         });
 
@@ -56,7 +101,6 @@ const getProducts = async (req, res) => {
             const productsWithVariantCount = await Promise.all(products.map(async (product) => {
                 let variantCount = 0;
                 if (product.variantId) {
-                    // Count all products with the same variantId
                     variantCount = await Product.count({ where: { variantId: product.variantId } });
                 }
                 
