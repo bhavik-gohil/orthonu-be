@@ -6,11 +6,8 @@ const getProducts = async (req, res) => {
         // Check if this is an admin request (has auth middleware)
         const isAdmin = req.user && req.user.role === 'main_admin';
         
-        let whereClause;
-        if (isAdmin) {
-            // Admin sees all products
-            whereClause = {};
-        } else {
+        let whereClause = {};
+        if (!isAdmin) {
             // Public sees only default variants and non-variant products
             whereClause = {
                 [Op.or]: [
@@ -18,6 +15,11 @@ const getProducts = async (req, res) => {
                     { isDefaultVariant: true } // default variants to show in listings
                 ]
             };
+        }
+
+        // Add specific UID filter if provided (crucial for product detail pages to avoid loading full catalog)
+        if (req.query.uid) {
+            whereClause.uid = req.query.uid;
         }
 
         const products = await Product.findAll({
