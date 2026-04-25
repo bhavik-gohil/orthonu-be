@@ -3,6 +3,7 @@ const jwt = require("jsonwebtoken");
 const Joi = require("joi");
 const { User, Sequelize } = require("../models");
 const { USER_TYPES, USER_STATUS } = require("../utils/constants");
+const { generateOtp } = require("./otpController");
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 const registerSchema = Joi.object({
@@ -45,8 +46,24 @@ const register = async (req, res) => {
   if (error) return res.status(400).json({ message: error.details[0].message });
 
   const existing = await User.findOne({ where: { email: value.email } });
-  if (existing)
-    return res.status(409).json({ message: "Email is already in use." });
+  if (existing) {
+    if (existing.isVerified) {
+      return res.status(409).json({ message: "Email is already in use." });
+    } else {
+      // Automatic Verification Prompt flow for unverified existing users
+      try {
+        await generateOtp(existing.email, 'registration');
+        return res.status(200).json({ 
+          status: "PENDING_VERIFICATION", 
+          message: "This email is already registered but not verified. A new verification code has been sent to your inbox.",
+          email: existing.email
+        });
+      } catch (err) {
+        console.error("Failed to resend OTP during registration:", err);
+        return res.status(500).json({ message: "Internal server error." });
+      }
+    }
+  }
 
   if (value.emailProfessional) {
     const existingProf = await User.findOne({
@@ -78,17 +95,27 @@ const register = async (req, res) => {
   try {
     const newUser = await User.create(userData);
 
-    // For regular users, log them in immediately
-    if (newUser.status === "active") {
-      const token = signToken(newUser);
-      res.cookie("user_token", token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "Lax",
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-      });
-
+    // Trigger OTP instead of immediate login
+    try {
+      await generateOtp(newUser.email, 'registration');
       return res.status(201).json({
+        status: "PENDING_VERIFICATION",
+        message: "Registration successful. Please verify your email with the code sent to your inbox.",
+        user: {
+          id: newUser.id,
+          uid: newUser.uid,
+          name: newUser.name,
+          email: newUser.email,
+          userType: newUser.userType,
+          status: newUser.status,
+        },
+      });
+    } catch (err) {
+      console.error("Failed to send OTP after registration:", err);
+      // Even if email fails, user is created, they can try to resend later
+      return res.status(201).json({
+        status: "PENDING_VERIFICATION",
+        message: "Registration successful, but we failed to send the verification email. Please click resend code.",
         user: {
           id: newUser.id,
           uid: newUser.uid,
@@ -130,6 +157,24 @@ const login = async (req, res) => {
   const match = await bcrypt.compare(value.password, user.password);
   if (!match)
     return res.status(401).json({ message: "Invalid email or password." });
+
+  if (!user.isVerified) {
+    try {
+      await generateOtp(user.email, 'registration');
+      return res.status(200).json({ 
+        status: "NOT_VERIFIED", 
+        message: "Your email is not verified. A new verification code has been sent to your inbox.",
+        email: user.email 
+      });
+    } catch (err) {
+      console.error("Failed to send OTP during login:", err);
+      return res.status(200).json({ 
+        status: "NOT_VERIFIED", 
+        message: "Your email is not verified. Failed to send new code, please try to resend manually.",
+        email: user.email 
+      });
+    }
+  }
 
   if (user.status === "inactive")
     return res.status(403).json({ message: "Account is inactive." });

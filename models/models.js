@@ -40,5 +40,6 @@ module.exports = {
     ProductGroup,
     ProductInProductGroup,
     UserSession,
+    Otp: require('./otp'),
 };
 

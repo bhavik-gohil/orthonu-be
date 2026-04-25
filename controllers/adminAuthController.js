@@ -5,6 +5,7 @@ const Joi = require("joi");
 const { AdminUser, User, UserSession, Sequelize } = require("../models");
 const { Op } = Sequelize;
 const { ADMIN_USER_TYPES, ADMIN_USER_STATUS, USER_STATUS } = require("../utils/constants");
+const { generateOtp } = require("./otpController");
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 const loginSchema = Joi.object({
@@ -58,37 +59,18 @@ const login = async (req, res) => {
   if (user.status === "inactive")
     return res.status(403).json({ message: "Account is inactive." });
 
-  // Clear any existing session to allow logging back in if session expired
-  await UserSession.destroy({ where: { userId: user.uid, isAdmin: true } });
-
-  // Generate a new session token and persist it
-  const sessionToken = crypto.randomUUID();
-  await UserSession.create({
-    userId: user.uid,
-    isAdmin: true,
-    sessionToken
-  });
-
-  const token = signToken(user, sessionToken);
-
-  // Set HttpOnly cookie
-  res.cookie("admin_token", token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "Lax",
-    maxAge: 30 * 60 * 1000, // 30 minutes
-  });
-
-  return res.status(200).json({
-    adminUser: {
-      id: user.id,
-      uid: user.uid,
-      name: user.name,
-      email: user.email,
-      userType: user.userType,
-      status: user.status,
-    },
-  });
+  // --- 2FA OTP Flow ---
+  try {
+    await generateOtp(user.email, 'admin_login');
+    return res.status(200).json({
+      requireOtp: true,
+      message: "Credentials verified. Please enter the verification code sent to your email.",
+      email: user.email
+    });
+  } catch (err) {
+    console.error("Failed to send Admin 2FA OTP:", err);
+    return res.status(500).json({ message: "Internal server error." });
+  }
 };
 
 // ─── me ───────────────────────────────────────────────────────────────────────
