@@ -94,6 +94,22 @@ const verifyOtp = async (req, res) => {
             });
         }
 
+        if (type === 'password_reset') {
+            const user = await User.findOne({ where: { email } });
+            if (!user) return res.status(404).json({ message: "User not found." });
+
+            const resetToken = jwt.sign(
+                { email: user.email, purpose: 'password_reset' },
+                process.env.JWT_SECRET,
+                { expiresIn: "15m" }
+            );
+
+            return res.status(200).json({
+                message: "OTP verified. You can now reset your password.",
+                resetToken
+            });
+        }
+
         if (type === 'admin_login') {
             const admin = await AdminUser.findOne({ where: { email } });
             if (!admin) return res.status(404).json({ message: "Admin not found." });

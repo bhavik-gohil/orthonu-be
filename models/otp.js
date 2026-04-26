@@ -6,7 +6,7 @@ module.exports = (sequelize) => {
         email: { type: DataTypes.STRING, allowNull: false },
         code: { type: DataTypes.STRING, allowNull: false },
         type: {
-            type: DataTypes.ENUM('registration', 'admin_login'),
+            type: DataTypes.STRING,
             allowNull: false
         },
         expiresAt: { type: DataTypes.DATE, allowNull: false },

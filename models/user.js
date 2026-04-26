@@ -34,7 +34,7 @@ module.exports = (sequelize) => {
     country: { type: DataTypes.STRING, allowNull: true },
     zipcode: { type: DataTypes.STRING, allowNull: true },
 
-    isBillingSameAsShipping: { type: DataTypes.BOOLEAN, defaultValue: false },
+    isBillingSameAsShipping: { type: DataTypes.BOOLEAN, defaultValue: true },
 
     // billing address
     billingNameOnCard: { type: DataTypes.STRING, allowNull: true },

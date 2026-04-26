@@ -11,6 +11,8 @@ router.post('/logout', userAuthController.logout);
 router.get('/me', authMiddleware, userAuthController.me);
 router.patch('/update-profile', authMiddleware, userAuthController.updateProfile);
 router.post('/delete-account', authMiddleware, userAuthController.deleteAccount);
+router.post('/forgot-password', userAuthController.forgotPassword);
+router.post('/reset-password', userAuthController.resetPassword);
 
 // OTP Routes
 router.post('/verify-otp', otpController.verifyOtp);

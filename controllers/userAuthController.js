@@ -300,4 +300,60 @@ const deleteAccount = async (req, res) => {
   }
 };
 
-module.exports = { register, login, me, logout, updateProfile, deleteAccount };
+// ─── forgotPassword ───────────────────────────────────────────────────────────
+const forgotPassword = async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ message: "Email is required." });
+
+  try {
+    const user = await User.findOne({ where: { email } });
+    if (!user) {
+      // Return 200 even if user not found for security, but we can return error in internal test apps
+      // For this app, we'll return 404 to be clear for the user.
+      return res.status(404).json({ message: "No account found with this email." });
+    }
+
+    await generateOtp(email, 'password_reset');
+    return res.status(200).json({ message: "Verification code sent to your email." });
+  } catch (err) {
+    console.error("Forgot password error:", err);
+    return res.status(500).json({ message: "Internal server error." });
+  }
+};
+
+// ─── resetPassword ────────────────────────────────────────────────────────────
+const resetPassword = async (req, res) => {
+  const { token, newPassword } = req.body;
+
+  if (!token || !newPassword) {
+    return res.status(400).json({ message: "Token and new password are required." });
+  }
+
+  if (newPassword.length < 8) {
+    return res.status(400).json({ message: "Password must be at least 8 characters long." });
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded.purpose !== 'password_reset') {
+      return res.status(400).json({ message: "Invalid token purpose." });
+    }
+
+    const user = await User.findOne({ where: { email: decoded.email } });
+    if (!user) return res.status(404).json({ message: "User not found." });
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    await user.save();
+
+    return res.status(200).json({ message: "Password reset successful. You can now log in." });
+  } catch (err) {
+    console.error("Reset password error:", err);
+    if (err.name === 'TokenExpiredError') {
+      return res.status(400).json({ message: "Reset session expired. Please start over." });
+    }
+    return res.status(400).json({ message: "Invalid or expired reset token." });
+  }
+};
+
+module.exports = { register, login, me, logout, updateProfile, deleteAccount, forgotPassword, resetPassword };
