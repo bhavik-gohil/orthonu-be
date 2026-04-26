@@ -14,11 +14,11 @@ const getTestimonials = async (req, res) => {
 // POST create — admin only
 const createTestimonial = async (req, res) => {
     try {
-        const { text, by } = req.body;
+        const { text, by, from } = req.body;
         if (!text || !by) {
             return res.status(400).json({ error: '"text" and "by" are required' });
         }
-        const testimonial = await Testimonial.create({ text, by });
+        const testimonial = await Testimonial.create({ text, by, from });
         res.status(201).json(testimonial);
     } catch (err) {
         console.error('createTestimonial error:', err);
