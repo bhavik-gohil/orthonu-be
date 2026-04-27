@@ -55,6 +55,8 @@ router.use("/cart", cartRouter);
 // ADMIN ROUTES — authentication required
 // ═══════════════════════════════════════════════════════════════════════════════
 
+const adminFormsRouter = require("./adminForms");
+
 router.use("/admin", adminRouter);
 
 // Products & categories — main_admin only
@@ -62,6 +64,7 @@ router.use("/admin/products", authMiddleware, mainAdminOnly, productRouter);
 router.use("/admin/product-categories", authMiddleware, mainAdminOnly, productCategoryRouter);
 router.use("/admin/colors", authMiddleware, mainAdminOnly, colorsRouter);
 router.use("/admin/upload", authMiddleware, mainAdminOnly, uploadRouter);
+router.use("/admin/submissions", adminFormsRouter);
 router.use("/admin/product-groups", productGroupsRouter);
 
 // About-page content — main_admin + editor
