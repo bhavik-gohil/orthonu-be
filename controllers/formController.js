@@ -285,10 +285,57 @@ const submitWhitePaperForm = async (req, res) => {
   }
 };
 
+/**
+ * Submit Pilot Request Form
+ */
+const submitPilotRequestForm = async (req, res) => {
+  try {
+    const { name, practiceName, numberOfLocations, email, submittedAt } = req.body;
+
+    const errors = {};
+    if (!name || !name.trim()) errors.name = 'Name is required';
+    if (!practiceName || !practiceName.trim()) errors.practiceName = 'Practice name is required';
+    if (!email || !email.trim()) {
+      errors.email = 'Email is required';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      errors.email = 'Please enter a valid email address';
+    }
+    if (numberOfLocations === undefined || numberOfLocations === null || numberOfLocations === '') {
+      errors.numberOfLocations = 'Number of locations is required';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      return res.status(400).json({ message: 'Please correct the following errors', errors });
+    }
+
+    const form = await Form.create({
+      name: 'request_pilot',
+      data: {
+        name: name.trim(),
+        practiceName: practiceName.trim(),
+        numberOfLocations: parseInt(numberOfLocations),
+        email: email.trim().toLowerCase(),
+        submittedAt: submittedAt || new Date().toISOString(),
+        type: 'request_pilot',
+      },
+    });
+
+    res.status(201).json({ 
+      success: true, 
+      message: "We'll reach out within 24 hours. — Sima, sima@orthonu.com", 
+      id: form.id 
+    });
+  } catch (error) {
+    console.error('Pilot request form error:', error);
+    res.status(500).json({ message: 'An error occurred. Please try again later.' });
+  }
+};
+
 module.exports = {
   submitContactForm,
   submitPartnershipForm,
   submitWhitePaperForm,
+  submitPilotRequestForm,
   getAllForms,
   getFormById,
 };
