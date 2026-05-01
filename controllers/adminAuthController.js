@@ -255,8 +255,8 @@ const extendSession = async (req, res) => {
       return res.status(401).json({ message: "Session invalid or expired." });
     }
 
-    // Check if the DB session is too old (e.g., 30 minutes of total inactivity)
-    const tooOldSession = new Date(Date.now() - 30 * 60 * 1000);
+    // Check if the DB session is too old (35 minutes of total inactivity including 5m grace period)
+    const tooOldSession = new Date(Date.now() - 35 * 60 * 1000);
     if (sessionRecord.updatedAt < tooOldSession) {
       await sessionRecord.destroy();
       return res
@@ -286,6 +286,8 @@ const extendSession = async (req, res) => {
     await sessionRecord.changed("updatedAt", true);
     await sessionRecord.save();
 
+    const decoded = jwt.decode(newToken);
+
     return res.status(200).json({
       message: "Session extended successfully.",
       user: {
@@ -295,6 +297,7 @@ const extendSession = async (req, res) => {
         email: user.email,
         userType: user.userType,
         status: user.status,
+        exp: decoded.exp,
       },
     });
   } catch (err) {

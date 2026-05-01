@@ -13,41 +13,52 @@ async function authMiddleware(req, res, next) {
     // Check cookies if no header found
     const cookies = req.cookies || {};
 
+    let adminAuthError = null;
+    let userAuthError = null;
+
     // ── Try admin token ────────────────────────────────────────────────────────
     if (cookies.admin_token) {
         try {
             const payload = jwt.verify(cookies.admin_token, process.env.JWT_SECRET);
-
-            // Verify the session token matches the DB record
             const sessionRecord = await UserSession.findOne({
                 where: { userId: payload.uid, isAdmin: true },
                 attributes: ['sessionToken'],
             });
 
-            if (!sessionRecord) {
-                return res.status(401).json({ message: 'Session expired. Please log in again.' });
+            if (!sessionRecord || sessionRecord.sessionToken !== payload.sessionToken) {
+                adminAuthError = { status: 401, payload: { message: 'Session invalid. Please log in again.' } };
+            } else {
+                await UserSession.update(
+                    { updatedAt: new Date() },
+                    { where: { userId: payload.uid, isAdmin: true } }
+                );
+                req.adminUser = payload;
             }
-
-            if (sessionRecord.sessionToken !== payload.sessionToken) {
-                // Session was invalidated (logout from another device or account takeover)
-                return res.status(401).json({
-                    message: 'Session invalid. Please log in again.',
-                });
-            }
-
-            // Update session timestamp to slide the window
-            await UserSession.update(
-                { updatedAt: new Date() },
-                { where: { userId: payload.uid, isAdmin: true } }
-            );
-
-            req.adminUser = payload;
-            return next();
         } catch (err) {
             if (err.name === 'TokenExpiredError') {
-                return res.status(401).json({ message: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' });
+                try {
+                    const payload = jwt.verify(cookies.admin_token, process.env.JWT_SECRET, { ignoreExpiration: true });
+                    const sessionRecord = await UserSession.findOne({
+                        where: { userId: payload.uid, isAdmin: true },
+                        attributes: ['updatedAt']
+                    });
+
+                    if (sessionRecord) {
+                        const inactivity = Date.now() - sessionRecord.updatedAt.getTime();
+                        if (inactivity <= 35 * 60 * 1000) {
+                            adminAuthError = { status: 401, payload: { message: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED_GRACE' } };
+                        } else {
+                            adminAuthError = { status: 401, payload: { message: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED_FINAL' } };
+                        }
+                    } else {
+                        adminAuthError = { status: 401, payload: { message: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED_FINAL' } };
+                    }
+                } catch (decodeErr) {
+                    adminAuthError = { status: 401, payload: { message: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED_FINAL' } };
+                }
+            } else {
+                adminAuthError = { status: 401, payload: { message: 'Session invalid. Please log in again.' } };
             }
-            // Invalid admin token, continue to check user token
         }
     }
 
@@ -56,9 +67,8 @@ async function authMiddleware(req, res, next) {
         try {
             const payload = jwt.verify(cookies.user_token, process.env.JWT_SECRET);
             req.user = payload;
-            return next();
         } catch (err) {
-            // Invalid user token
+            userAuthError = { status: 401, payload: { message: 'Session invalid. Please log in again.' } };
         }
     }
 
@@ -72,13 +82,23 @@ async function authMiddleware(req, res, next) {
             } else {
                 req.user = payload;
             }
-            return next();
         } catch (err) {
-            return res.status(401).json({ message: 'Unauthorized' });
+            // Ignore Bearer error, fall back to default behavior
         }
     }
 
-    return res.status(401).json({ message: 'Unauthorized' });
+    // ── Final Decision Logic ───────────────────────────────────────────────────
+    const isAdminRoute = req.originalUrl.includes('/admin');
+
+    if (isAdminRoute) {
+        if (req.adminUser) return next();
+        if (adminAuthError) return res.status(adminAuthError.status).json(adminAuthError.payload);
+        return res.status(401).json({ message: 'Unauthorized' });
+    } else {
+        if (req.user) return next();
+        if (userAuthError) return res.status(userAuthError.status).json(userAuthError.payload);
+        return res.status(401).json({ message: 'Unauthorized' });
+    }
 }
 
 module.exports = authMiddleware;
