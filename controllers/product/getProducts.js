@@ -84,7 +84,7 @@ const getProducts = async (req, res) => {
                 },
             ],
             order: [
-                ['createdAt', 'DESC'],
+                ['displayOrder', 'ASC'],
             ],
         });
 

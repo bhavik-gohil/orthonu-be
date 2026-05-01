@@ -22,6 +22,7 @@ module.exports = (sequelize) => {
         variantName: { type: DataTypes.STRING, allowNull: true }, // to display different variants in a variant product page, user can switch to different variant products
         variantId: { type: DataTypes.INTEGER, allowNull: true },       // a common id for all the product of a variant for reference grouping
         isDefaultVariant: { type: DataTypes.BOOLEAN, defaultValue: false },
+        displayOrder: { type: DataTypes.INTEGER, allowNull: true },
     }, {
         timestamps: true,
         indexes: [
@@ -45,6 +46,13 @@ module.exports = (sequelize) => {
             as: 'categories' 
         });
     };
+
+    // Auto-assign displayOrder to the ID on creation if not specified
+    Product.afterCreate(async (product, options) => {
+        if (product.displayOrder === null) {
+            await product.update({ displayOrder: product.id }, { transaction: options.transaction });
+        }
+    });
 
     return Product;
 };
