@@ -64,13 +64,13 @@ router.use("/admin/products", authMiddleware, mainAdminOnly, productRouter);
 router.use("/admin/product-categories", authMiddleware, mainAdminOnly, productCategoryRouter);
 router.use("/admin/colors", authMiddleware, mainAdminOnly, colorsRouter);
 router.use("/admin/upload", authMiddleware, mainAdminOnly, uploadRouter);
-router.use("/admin/submissions", adminFormsRouter);
-router.use("/admin/product-groups", productGroupsRouter);
+router.use("/admin/submissions", authMiddleware, mainAdminOnly, adminFormsRouter);
+router.use("/admin/product-groups", authMiddleware, mainAdminOnly, productGroupsRouter);
 
 // About-page content — main_admin + editor
-router.use("/admin/testimonials", testimonialsRouter);
-router.use("/admin/board-members", boardMembersRouter);
-router.use("/admin/partners", partnersRouter);
+router.use("/admin/testimonials", authMiddleware, testimonialsRouter);
+router.use("/admin/board-members", authMiddleware, boardMembersRouter);
+router.use("/admin/partners", authMiddleware, partnersRouter);
 
 // Coupons — public validate + admin CRUD
 router.use("/coupons", couponsRouter);

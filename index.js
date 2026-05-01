@@ -31,13 +31,6 @@ async function start() {
   await sequelize.authenticate();
   await sequelize.sync({ alter: true }); // alter: true adds new columns to existing tables
   
-  // Ensure all existing products have a displayOrder (defaulting to their ID)
-  try {
-    await sequelize.query('UPDATE "Products" SET "displayOrder" = "id" WHERE "displayOrder" IS NULL');
-  } catch (err) {
-    console.error("Backfill query failed (might be first run):", err.message);
-  }
-
   app.listen(PORT, () => console.log(`Listening ${PORT}`));
 }
 start().catch(err => { console.error(err); process.exit(1); });
