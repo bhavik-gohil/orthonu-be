@@ -4,7 +4,11 @@ const crypto = require("crypto");
 const Joi = require("joi");
 const { AdminUser, User, UserSession, Sequelize } = require("../models");
 const { Op } = Sequelize;
-const { ADMIN_USER_TYPES, ADMIN_USER_STATUS, USER_STATUS } = require("../utils/constants");
+const {
+  ADMIN_USER_TYPES,
+  ADMIN_USER_STATUS,
+  USER_STATUS,
+} = require("../utils/constants");
 const { generateOtp } = require("./otpController");
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
@@ -61,11 +65,12 @@ const login = async (req, res) => {
 
   // --- 2FA OTP Flow ---
   try {
-    await generateOtp(user.email, 'admin_login');
+    await generateOtp(user.email, "admin_login");
     return res.status(200).json({
       requireOtp: true,
-      message: "Credentials verified. Please enter the verification code sent to your email.",
-      email: user.email
+      message:
+        "Credentials verified. Please enter the verification code sent to your email.",
+      email: user.email,
     });
   } catch (err) {
     console.error("Failed to send Admin 2FA OTP:", err);
@@ -124,7 +129,23 @@ const resetPassword = async (req, res) => {
   const hashedPassword = await bcrypt.hash(value.newPassword, 10);
   await user.update({ password: hashedPassword, status: "active" });
 
-  const token = signToken({ ...user.dataValues, status: "active" });
+  // Create a fresh session for the user after password reset
+  const sessionToken = crypto.randomUUID();
+  await UserSession.destroy({ where: { userId: user.uid, isAdmin: true } });
+  await UserSession.create({ userId: user.uid, isAdmin: true, sessionToken });
+
+  const token = signToken(
+    { ...user.dataValues, status: "active" },
+    sessionToken,
+  );
+
+  res.cookie("admin_token", token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 30 * 60 * 1000,
+  });
+
   return res
     .status(200)
     .json({ message: "Password updated successfully.", token });
@@ -148,10 +169,18 @@ const getUsers = async (req, res) => {
 };
 
 const logout = async (req, res) => {
-  // Clear the session token from the DB so the admin can log in again
-  if (req.adminUser && req.adminUser.uid) {
+  // Decode the token (even if expired) to get the user ID for DB cleanup
+  const token = req.cookies.admin_token;
+  if (token) {
     try {
-      await UserSession.destroy({ where: { userId: req.adminUser.uid, isAdmin: true } });
+      const payload = jwt.verify(token, process.env.JWT_SECRET, {
+        ignoreExpiration: true,
+      });
+      if (payload.uid) {
+        await UserSession.destroy({
+          where: { userId: payload.uid, isAdmin: true },
+        });
+      }
     } catch (err) {
       console.error("Failed to clear admin session on logout:", err);
     }
@@ -198,11 +227,90 @@ const updateUserStatus = async (req, res) => {
     }
 
     await user.update({ status });
-    return res.status(200).json({ message: "User status updated successfully" });
+    return res
+      .status(200)
+      .json({ message: "User status updated successfully" });
   } catch (err) {
     console.error("Update user status error:", err);
     return res.status(500).json({ message: "Internal server error." });
   }
 };
 
-module.exports = { login, me, logout, createUser, resetPassword, getUsers, getAllUsers, updateUserStatus };
+const extendSession = async (req, res) => {
+  const token = req.cookies.admin_token;
+  if (!token) return res.status(401).json({ message: "No session found." });
+
+  try {
+    // Decode without verification of expiration to get user info
+    const payload = jwt.verify(token, process.env.JWT_SECRET, {
+      ignoreExpiration: true,
+    });
+
+    // Verify session still exists in DB
+    const sessionRecord = await UserSession.findOne({
+      where: { userId: payload.uid, isAdmin: true },
+    });
+
+    if (!sessionRecord || sessionRecord.sessionToken !== payload.sessionToken) {
+      return res.status(401).json({ message: "Session invalid or expired." });
+    }
+
+    // Check if the DB session is too old (e.g., 30 minutes of total inactivity)
+    const tooOldSession = new Date(Date.now() - 30 * 60 * 1000);
+    if (sessionRecord.updatedAt < tooOldSession) {
+      await sessionRecord.destroy();
+      return res
+        .status(401)
+        .json({ message: "Session timed out due to inactivity." });
+    }
+
+    // Issue new token
+    const user = await AdminUser.findOne({ where: { uid: payload.uid } });
+    if (!user || user.status === "inactive") {
+      return res
+        .status(401)
+        .json({ message: "User account no longer active." });
+    }
+
+    const newToken = signToken(user, sessionRecord.sessionToken);
+
+    // Refresh cookie
+    res.cookie("admin_token", newToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 30 * 60 * 1000, // 30 minutes
+    });
+
+    // Update DB timestamp to slide the 4-hour window
+    await sessionRecord.changed("updatedAt", true);
+    await sessionRecord.save();
+
+    return res.status(200).json({
+      message: "Session extended successfully.",
+      user: {
+        id: user.id,
+        uid: user.uid,
+        name: user.name,
+        email: user.email,
+        userType: user.userType,
+        status: user.status,
+      },
+    });
+  } catch (err) {
+    console.error("Extend session error:", err);
+    return res.status(401).json({ message: "Failed to extend session." });
+  }
+};
+
+module.exports = {
+  login,
+  me,
+  logout,
+  createUser,
+  resetPassword,
+  getUsers,
+  getAllUsers,
+  updateUserStatus,
+  extendSession,
+};

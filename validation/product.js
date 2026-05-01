@@ -7,14 +7,14 @@ const priceSchema = Joi.object({
 });
 
 const extraMediaMetaSchema = Joi.object({
-    type: Joi.string().valid('image', 'video', 'pdf').required(),
+    type: Joi.string().valid('image', 'video').required(),
     youtubeUrl: Joi.string().uri().when('type', {
         is: 'video',
         then: Joi.required(),
         otherwise: Joi.forbidden(),
     }),
     fileIndex: Joi.number().integer().min(0).when('type', {
-        is: Joi.valid('image', 'pdf'),
+        is: 'image',
         then: Joi.required(),
         otherwise: Joi.forbidden(),
     }),
@@ -39,11 +39,18 @@ const baseProductSchema = {
         .has(Joi.object({ userType: USER_TYPES.REGULAR }).unknown())
         .optional(),
 
-    // Standard media: optional YouTube embedded URLs (array)
-    standardYoutubeUrls: Joi.array().items(Joi.string().uri()).optional(),
+    // Unified media layout for interleaved ordering
+    mediaLayout: Joi.array().items(Joi.object({
+        type: Joi.string().valid('image', 'video').required(),
+        id: Joi.number().optional(), // For existing media
+        url: Joi.string().uri().optional(), // For existing/new videos
+        fileIndex: Joi.number().optional(), // For new images/files
+        isExtra: Joi.boolean().default(false).optional(),
+    })).optional(),
 
-    // Extra media metadata (optional, max 5)
-    extraMediaMeta: Joi.array().items(extraMediaMetaSchema).max(5).optional(),
+    // Legacy fields (optional for backward compatibility)
+    standardYoutubeUrls: Joi.array().items(Joi.string().uri()).optional(),
+    extraMediaMeta: Joi.array().items(extraMediaMetaSchema).max(10).optional(),
 
     // Per-product fields
     tag: Joi.string().allow(null, '').optional(),
@@ -52,20 +59,25 @@ const baseProductSchema = {
     variantName: Joi.string().allow(null, '').optional(),
     color: Joi.string().allow(null, '').optional(),
 
-    // Bundle items (required when isBundle=true)
-    bundleItems: Joi.array().items(bundleItemSchema).when('isBundle', {
-        is: true,
-        then: Joi.array().min(1).required(),
-        otherwise: Joi.array().optional(),
-    }),
+    // Bundle items (optional)
+    bundleItems: Joi.array().items(bundleItemSchema).optional(),
 
     // Allow these to be present in body (sometimes sent by clients even if using multipart)
     standardImages: Joi.any().optional(),
     extraFiles: Joi.any().optional(),
+    keepMediaIds: Joi.any().optional(),
 };
 
 const createProductSchema = Joi.object({
     ...baseProductSchema,
+    // Override: name and prices are REQUIRED for new product creation
+    name: Joi.string().required().messages({ 'any.required': 'Product name is required.' }),
+    prices: Joi.array()
+        .items(priceSchema)
+        .min(1)
+        .has(Joi.object({ userType: USER_TYPES.REGULAR }).unknown())
+        .required()
+        .messages({ 'any.required': 'At least one price (regular) is required.' }),
 });
 
 const addVariantSchema = Joi.object({

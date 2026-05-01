@@ -1,9 +1,10 @@
-const { Product, ProductPrice, ProductBundle, ProductMedia, sequelize } = require('../../models');
-const { createProductSchema } = require('../../validation/product'); // Reusing the schema (patch is partial validation usually, but we can reuse create schema)
-const { createMediaRecords, parseField, UPLOADS_DIR, MAX_IMAGE_SIZE, MAX_PDF_SIZE } = require('./createProduct');
+const { Product, ProductPrice, ProductBundle, ProductMedia, ProductCategory, ProductCategoryLink, sequelize } = require('../../models');
+const { createProductSchema } = require('../../validation/product');
+const { createMediaRecords, parseField, cleanupWrittenFiles, clearFileTracker, UPLOADS_DIR, MAX_IMAGE_SIZE, MAX_PDF_SIZE } = require('./createProduct');
 
 const updateProduct = async (req, res) => {
     const { id } = req.params;
+    clearFileTracker();
     const t = await sequelize.transaction();
     try {
         const product = await Product.findByPk(id, { transaction: t });
@@ -13,24 +14,23 @@ const updateProduct = async (req, res) => {
         }
 
         const body = { ...req.body };
-        // Parse JSON fields if they are strings
         if (body.prices) body.prices = parseField(body.prices);
         if (body.bundleItems) body.bundleItems = parseField(body.bundleItems);
         if (body.extraMediaMeta) body.extraMediaMeta = parseField(body.extraMediaMeta);
         if (body.standardYoutubeUrls) body.standardYoutubeUrls = parseField(body.standardYoutubeUrls);
         if (body.keepMediaIds) body.keepMediaIds = parseField(body.keepMediaIds);
+        if (body.mediaLayout) body.mediaLayout = parseField(body.mediaLayout);
         if (body.additionalInfo) body.additionalInfo = parseField(body.additionalInfo);
         if (body.isBundle !== undefined) body.isBundle = body.isBundle === 'true' || body.isBundle === true;
 
-        // Validation - We use createProductSchema but make it optional if we wanted partial, 
-        // but here the form sends the whole thing usually.
         const { error, value } = createProductSchema.validate(body, { abortEarly: false, allowUnknown: true });
         if (error) {
             await t.rollback();
             return res.status(400).json({ error: error.details.map(d => d.message).join('; ') });
         }
 
-        const { prices, bundleItems, extraMediaMeta, standardYoutubeUrls, keepMediaIds, ...productData } = value;
+        // Strip non-product fields to avoid leaking them into product.update()
+        const { prices, bundleItems, extraMediaMeta, standardYoutubeUrls, keepMediaIds, mediaLayout, standardImages: _si, extraFiles: _ef, productCategory: categoryName, ...productData } = value;
 
         // Update basic fields
         await product.update(productData, { transaction: t });
@@ -44,17 +44,12 @@ const updateProduct = async (req, res) => {
             );
         }
 
-        // Update Media: For now we just ADD new media if provided. 
-        // If the user wants to clear old media, we'd need a way to track which ones to delete.
-        // For simplicity: if NO new media is provided, keep old. If NEW is provided, keep old and ADD new.
-        // Actually, a better "Update" for images is to allow the user to manage them.
-        // But the current UI sends NEW files. 
-        // Note: standardImages and extraFiles are NEW files. 
-        // keepMediaIds covers existing media to retain.
-        const standardImages = (req.files && req.files['standardImages']) || [];
-        const extraFiles = (req.files && req.files['extraFiles']) || [];
+        // Update Media: keepMediaIds determines which existing media to retain,
+        // createMediaRecords handles deletion of non-kept media and adding new media.
+        const standardImages = Array.isArray(req.files) ? req.files.filter(f => f.fieldname === 'standardImages') : [];
+        const extraFiles = Array.isArray(req.files) ? req.files.filter(f => f.fieldname === 'extraFiles') : [];
 
-        await createMediaRecords({ productId: id, standardImages, standardYoutubeUrls, extraMediaMeta, extraFiles, keepMediaIds, t });
+        await createMediaRecords({ productId: id, standardImages, standardYoutubeUrls, extraMediaMeta, extraFiles, keepMediaIds, mediaLayout, t });
 
         // Bundle items
         if (value.isBundle && bundleItems) {
@@ -65,7 +60,23 @@ const updateProduct = async (req, res) => {
             );
         }
 
+        // Sync categories via junction table — always clear + re-create
+        await ProductCategoryLink.destroy({ where: { productId: id }, transaction: t });
+        if (categoryName) {
+            const cat = await ProductCategory.findOne({ 
+                where: { productCategory: categoryName }, 
+                transaction: t 
+            });
+            if (cat) {
+                await ProductCategoryLink.create({
+                    productId: id,
+                    categoryId: cat.id
+                }, { transaction: t });
+            }
+        }
+
         await t.commit();
+        clearFileTracker();
 
         const result = await Product.findByPk(id, {
             include: [
@@ -80,6 +91,7 @@ const updateProduct = async (req, res) => {
 
     } catch (err) {
         await t.rollback();
+        cleanupWrittenFiles();
         console.error('Error updating product:', err);
         return res.status(500).json({ error: 'Internal Server Error', message: err.message });
     }

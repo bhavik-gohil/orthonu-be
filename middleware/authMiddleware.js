@@ -35,9 +35,18 @@ async function authMiddleware(req, res, next) {
                 });
             }
 
+            // Update session timestamp to slide the window
+            await UserSession.update(
+                { updatedAt: new Date() },
+                { where: { userId: payload.uid, isAdmin: true } }
+            );
+
             req.adminUser = payload;
             return next();
         } catch (err) {
+            if (err.name === 'TokenExpiredError') {
+                return res.status(401).json({ message: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED' });
+            }
             // Invalid admin token, continue to check user token
         }
     }

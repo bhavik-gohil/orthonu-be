@@ -12,5 +12,14 @@ module.exports = (sequelize) => {
         timestamps: true
     });
 
+    ProductCategory.associate = (models) => {
+        ProductCategory.belongsToMany(models.Product, { 
+            through: models.ProductCategoryLink, 
+            foreignKey: 'categoryId', 
+            otherKey: 'productId',
+            as: 'products' 
+        });
+    };
+
     return ProductCategory;
 };

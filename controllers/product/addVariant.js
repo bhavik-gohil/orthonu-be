@@ -1,9 +1,10 @@
-const { Product, ProductPrice, ProductBundle, ProductMedia, sequelize } = require('../../models');
+const { Product, ProductPrice, ProductBundle, ProductMedia, ProductCategory, ProductCategoryLink, sequelize } = require('../../models');
 const { Op } = require('sequelize');
 const { addVariantSchema } = require('../../validation/product');
-const { createMediaRecords, parseField, MAX_IMAGE_SIZE, MAX_PDF_SIZE } = require('./createProduct');
+const { createMediaRecords, parseField, cleanupWrittenFiles, clearFileTracker, MAX_IMAGE_SIZE, MAX_PDF_SIZE } = require('./createProduct');
 
 const addVariant = async (req, res) => {
+    clearFileTracker();
     const t = await sequelize.transaction();
     try {
         // Parse multipart fields
@@ -13,6 +14,8 @@ const addVariant = async (req, res) => {
         body.extraMediaMeta = parseField(body.extraMediaMeta);
         body.standardYoutubeUrls = parseField(body.standardYoutubeUrls);
         body.additionalInfo = parseField(body.additionalInfo);
+        body.mediaLayout = parseField(body.mediaLayout);
+        body.keepMediaIds = parseField(body.keepMediaIds);
         body.isBundle = body.isBundle === 'true' || body.isBundle === true;
         body.isDefaultVariant = body.isDefaultVariant === 'true' || body.isDefaultVariant === true;
 
@@ -24,7 +27,7 @@ const addVariant = async (req, res) => {
         }
 
         // Load parent product
-        const parent = await Product.findByPk(req.params.id);
+        const parent = await Product.findByPk(req.params.id, { transaction: t });
         if (!parent) {
             await t.rollback();
             return res.status(404).json({ error: 'Product not found.' });
@@ -34,8 +37,8 @@ const addVariant = async (req, res) => {
         const resolvedVariantId = parent.variantId !== null ? parent.variantId : parent.id;
 
         // File validation
-        const standardImages = (req.files && req.files['standardImages']) || [];
-        const extraFiles = (req.files && req.files['extraFiles']) || [];
+        const standardImages = Array.isArray(req.files) ? req.files.filter(f => f.fieldname === 'standardImages') : [];
+        const extraFiles = Array.isArray(req.files) ? req.files.filter(f => f.fieldname === 'extraFiles') : [];
 
         for (const img of standardImages) {
             if (img.size > MAX_IMAGE_SIZE) {
@@ -57,18 +60,16 @@ const addVariant = async (req, res) => {
         const isFirstVariant = existingCount === 0;
         const isDefault = isFirstVariant ? false : value.isDefaultVariant; // First variant is NOT default, base product remains default
 
-        const { prices, bundleItems, extraMediaMeta, standardYoutubeUrls, isDefaultVariant: _dv, ...productData } = value;
+        const { prices, bundleItems, extraMediaMeta, standardYoutubeUrls, isDefaultVariant: _dv, productCategory: categoryName, ...productData } = value;
 
-        // INHERITANCE LOGIC
         const finalData = {
-            name: productData.name || parent.name,
-            productCategory: productData.productCategory || parent.productCategory,
-            intro: productData.intro || parent.intro,
-            description: productData.description || parent.description,
-            tag: productData.tag || parent.tag,
-            additionalInfo: productData.additionalInfo || parent.additionalInfo,
-            color: productData.color || parent.color,
-            variantName: productData.variantName || null,
+            name: productData.name ?? parent.name,
+            intro: productData.intro ?? parent.intro,
+            description: productData.description ?? parent.description,
+            tag: productData.tag ?? parent.tag,
+            additionalInfo: productData.additionalInfo ?? parent.additionalInfo,
+            color: productData.color ?? parent.color,
+            variantName: productData.variantName ?? null,
             isBundle: productData.isBundle !== undefined ? productData.isBundle : parent.isBundle,
             variantId: resolvedVariantId,
             isDefaultVariant: isDefault,
@@ -125,8 +126,8 @@ const addVariant = async (req, res) => {
                 { transaction: t }
             );
         } else {
-            // New media provided, use createMediaRecords
-            await createMediaRecords({ productId: variant.id, standardImages, standardYoutubeUrls, extraMediaMeta, extraFiles, t });
+            const { extraMediaMeta, standardYoutubeUrls, mediaLayout } = value;
+            await createMediaRecords({ productId: variant.id, standardImages, standardYoutubeUrls, extraMediaMeta, extraFiles, mediaLayout, t });
         }
 
         if (finalData.isBundle) {
@@ -140,7 +141,34 @@ const addVariant = async (req, res) => {
             );
         }
 
+        // Inherit or set categories via junction table
+        if (categoryName) {
+            const cat = await ProductCategory.findOne({ 
+                where: { productCategory: categoryName }, 
+                transaction: t 
+            });
+            if (cat) {
+                await ProductCategoryLink.create({
+                    productId: variant.id,
+                    categoryId: cat.id
+                }, { transaction: t });
+            }
+        } else {
+            // Inherit all categories from parent
+            const parentCats = await ProductCategoryLink.findAll({ where: { productId: parent.id }, transaction: t });
+            if (parentCats.length > 0) {
+                await ProductCategoryLink.bulkCreate(
+                    parentCats.map(pc => ({
+                        productId: variant.id,
+                        categoryId: pc.categoryId
+                    })),
+                    { transaction: t }
+                );
+            }
+        }
+
         await t.commit();
+        clearFileTracker();
 
         const result = await Product.findByPk(variant.id, {
             include: [
@@ -154,6 +182,7 @@ const addVariant = async (req, res) => {
 
     } catch (err) {
         await t.rollback();
+        cleanupWrittenFiles();
         console.error('Error adding variant:', err);
         return res.status(500).json({ error: 'Internal Server Error', message: err.message });
     }

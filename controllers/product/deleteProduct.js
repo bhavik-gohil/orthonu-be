@@ -1,4 +1,4 @@
-const { Product, ProductPrice, ProductBundle, ProductMedia, sequelize } = require('../../models');
+const { Product, ProductPrice, ProductBundle, ProductMedia, ProductCategoryLink, sequelize } = require('../../models');
 const { Op } = require('sequelize');
 const fs = require('fs');
 const path = require('path');
@@ -82,6 +82,7 @@ const deleteProduct = async (req, res) => {
         await ProductMedia.destroy({ where: { productId: id }, transaction: t });
         await ProductBundle.destroy({ where: { productId: id }, transaction: t });
         await ProductPrice.destroy({ where: { productId: id }, transaction: t });
+        await ProductCategoryLink.destroy({ where: { productId: id }, transaction: t });
 
         // Delete the product itself
         await product.destroy({ transaction: t });

@@ -1,10 +1,10 @@
-const { Product, ProductPrice, ProductBundle, ProductMedia } = require('../../models');
+const { Product, ProductPrice, ProductBundle, ProductMedia, ProductCategory } = require('../../models');
 const { Op } = require('sequelize');
 
 const getProducts = async (req, res) => {
     try {
         // Check if this is an admin request (has auth middleware)
-        const isAdmin = req.user && req.user.role === 'main_admin';
+        const isAdmin = req.adminUser && req.adminUser.userType === 'main_admin';
         
         let whereClause = {};
         if (!isAdmin) {
@@ -17,55 +17,45 @@ const getProducts = async (req, res) => {
             };
         }
 
-        // --- OPTIMIZATION: SINGLE PRODUCT FETCH (BY UID) ---
-        if (req.query.uid) {
-            // 1. Fetch the core product first (needed for the ID to fetch associations)
-            const product = await Product.findOne({
-                where: { uid: req.query.uid }
+        // --- OPTIMIZATION: SINGLE PRODUCT FETCH (BY UID or ID) ---
+        if (req.query.uid || req.query.id) {
+            // 1. Fetch the core product with all associations in ONE go
+            const result = await Product.findOne({
+                where: req.query.uid ? { uid: req.query.uid } : { id: req.query.id },
+                include: [
+                    { model: ProductPrice, as: 'prices', attributes: { exclude: ['createdAt', 'updatedAt'] } },
+                    { 
+                        model: ProductBundle, as: 'bundleItems',
+                        include: [{ 
+                            model: Product, as: 'product',
+                            include: [{ model: ProductMedia, as: 'media' }] 
+                        }]
+                    },
+                    { model: ProductMedia, as: 'media', order: [['displayOrder', 'ASC']] },
+                    { model: ProductCategory, as: 'categories', through: { attributes: [] } },
+                    {
+                        model: Product, as: 'variants',
+                        include: [
+                            { model: ProductPrice, as: 'prices' },
+                            { model: ProductMedia, as: 'media', order: [['displayOrder', 'ASC']] },
+                            { model: ProductCategory, as: 'categories', through: { attributes: [] } }
+                        ]
+                    }
+                ]
             });
+ 
+            if (!result) return res.status(404).json({ error: 'Product not found' });
+            
+            // Add variant count separately if needed (count is simpler as a separate call)
+            let variantCount = 0;
+            if (!isAdmin && result.variantId) {
+                variantCount = await Product.count({ where: { variantId: result.variantId } });
+            }
 
-            if (!product) return res.status(404).json({ error: 'Product not found' });
-
-            const productId = product.id;
-            const variantId = product.variantId;
-
-            // 2. Fetch all associations in PARALLEL
-            const [prices, bundleItems, media, variants, variantCount] = await Promise.all([
-                ProductPrice.findAll({ where: { productId }, attributes: { exclude: ['createdAt', 'updatedAt'] } }),
-                ProductBundle.findAll({ 
-                    where: { productId },
-                    include: [{ 
-                        model: Product, as: 'product',
-                        include: [{ model: ProductMedia, as: 'media' }] 
-                    }]
-                }),
-                ProductMedia.findAll({ 
-                    where: { productId }, 
-                    order: [['displayOrder', 'ASC']] 
-                }),
-                // Only fetch variants if this product belongs to a variant group
-                variantId ? Product.findAll({ 
-                    where: { variantId },
-                    include: [
-                        { model: ProductPrice, as: 'prices' },
-                        { model: ProductMedia, as: 'media' }
-                    ]
-                }) : Promise.resolve([]),
-                // Only count variants if public
-                (!isAdmin && variantId) ? Product.count({ where: { variantId } }) : Promise.resolve(0)
-            ]);
-
-            // 3. Assemble and return
-            const result = {
-                ...product.toJSON(),
-                prices,
-                bundleItems,
-                media,
-                variants,
+            return res.status(200).json({
+                ...result.toJSON(),
                 variantCount
-            };
-
-            return res.status(200).json(result);
+            });
         }
 
         // --- STANDARD LISTING FETCH ---
@@ -82,12 +72,14 @@ const getProducts = async (req, res) => {
                         }
                     ]
                 },
-                { model: ProductMedia, as: 'media', separate: true },
+                { model: ProductMedia, as: 'media', separate: true, order: [['displayOrder', 'ASC']] },
+                { model: ProductCategory, as: 'categories', through: { attributes: [] } },
                 {
                     model: Product, as: 'variants', separate: true,
                     include: [
                         { model: ProductPrice, as: 'prices' },
-                        { model: ProductMedia, as: 'media' },
+                        { model: ProductMedia, as: 'media', order: [['displayOrder', 'ASC']] },
+                        { model: ProductCategory, as: 'categories', through: { attributes: [] } },
                     ],
                 },
             ],

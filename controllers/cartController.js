@@ -1,4 +1,4 @@
-const { Cart, CartItem, Product, ProductMedia, ProductPrice } = require('../models');
+const { Cart, CartItem, Product, ProductMedia, ProductPrice, ProductCategory } = require('../models');
 
 const getCart = async (req, res) => {
     try {
@@ -32,7 +32,8 @@ const addToCart = async (req, res) => {
         const product = await Product.findByPk(productId, {
             include: [
                 { model: ProductPrice, as: 'prices' },
-                { model: ProductMedia, as: 'media', where: { isExtra: false }, required: false }
+                { model: ProductMedia, as: 'media', where: { isExtra: false }, required: false },
+                { model: ProductCategory, as: 'categories', through: { attributes: [] } }
             ]
         });
 
@@ -77,7 +78,7 @@ const addToCart = async (req, res) => {
             variantName: product.variantName,
             color: product.color,
             quantity,
-            productCategory: product.productCategory,
+            productCategory: product.categories?.[0]?.productCategory ?? null,
             isBundle: product.isBundle
         });
 

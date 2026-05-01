@@ -1,4 +1,4 @@
-const { Product, ProductPrice, ProductBundle, ProductMedia } = require('../../models');
+const { Product, ProductPrice, ProductBundle, ProductMedia, ProductCategory } = require('../../models');
 
 const getProduct = async (req, res) => {
     try {
@@ -15,12 +15,14 @@ const getProduct = async (req, res) => {
                     ]
                 },
                 { model: ProductMedia, as: 'media', order: [['displayOrder', 'ASC']] },
+                { model: ProductCategory, as: 'categories', through: { attributes: [] } },
                 {
                     model: Product, as: 'variants',
                     include: [
                         { model: ProductPrice, as: 'prices' },
                         { model: ProductMedia, as: 'media', order: [['displayOrder', 'ASC']] },
                         { model: ProductBundle, as: 'bundleItems' },
+                        { model: ProductCategory, as: 'categories', through: { attributes: [] } },
                     ],
                 },
             ],
