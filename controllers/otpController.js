@@ -2,6 +2,7 @@ const { Otp, User, AdminUser } = require('../models');
 const { sendOtpEmail } = require('../utils/email');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const { SESSION_CONFIG } = require('../utils/constants');
 
 const generateOtp = async (email, type) => {
     // Expire any existing unused OTPs for this email/type
@@ -135,14 +136,14 @@ const verifyOtp = async (req, res) => {
                     sessionToken,
                 },
                 process.env.JWT_SECRET,
-                { expiresIn: "30m" }
+                { expiresIn: SESSION_CONFIG.ADMIN_JWT_EXPIRES_IN }
             );
 
             res.cookie("admin_token", token, {
                 httpOnly: true,
                 secure: process.env.NODE_ENV === "production",
                 sameSite: "Lax",
-                maxAge: 30 * 60 * 1000,
+                maxAge: SESSION_CONFIG.ADMIN_GRACE_PERIOD_MS,
             });
 
             return res.status(200).json({

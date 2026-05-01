@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { AdminUser, UserSession } = require('../models');
+const { SESSION_CONFIG } = require('../utils/constants');
 
 async function authMiddleware(req, res, next) {
     let token = null;
@@ -45,7 +46,7 @@ async function authMiddleware(req, res, next) {
 
                     if (sessionRecord) {
                         const inactivity = Date.now() - sessionRecord.updatedAt.getTime();
-                        if (inactivity <= 35 * 60 * 1000) {
+                        if (inactivity <= SESSION_CONFIG.ADMIN_GRACE_PERIOD_MS) {
                             adminAuthError = { status: 401, payload: { message: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED_GRACE' } };
                         } else {
                             adminAuthError = { status: 401, payload: { message: 'Session expired. Please log in again.', code: 'SESSION_EXPIRED_FINAL' } };

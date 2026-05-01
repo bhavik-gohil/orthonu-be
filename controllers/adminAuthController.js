@@ -8,6 +8,7 @@ const {
   ADMIN_USER_TYPES,
   ADMIN_USER_STATUS,
   USER_STATUS,
+  SESSION_CONFIG,
 } = require("../utils/constants");
 const { generateOtp } = require("./otpController");
 
@@ -43,7 +44,7 @@ function signToken(user, sessionToken) {
       sessionToken,
     },
     process.env.JWT_SECRET,
-    { expiresIn: "30m" }, // 30 minutes session timeout
+    { expiresIn: SESSION_CONFIG.ADMIN_JWT_EXPIRES_IN },
   );
 }
 
@@ -143,7 +144,7 @@ const resetPassword = async (req, res) => {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
-    maxAge: 30 * 60 * 1000,
+    maxAge: SESSION_CONFIG.ADMIN_GRACE_PERIOD_MS,
   });
 
   return res
@@ -255,9 +256,8 @@ const extendSession = async (req, res) => {
       return res.status(401).json({ message: "Session invalid or expired." });
     }
 
-    // Check if the DB session is too old (35 minutes of total inactivity including 5m grace period)
-    const tooOldSession = new Date(Date.now() - 35 * 60 * 1000);
-    if (sessionRecord.updatedAt < tooOldSession) {
+    // Check if the DB session is too old
+    if (sessionRecord.updatedAt < new Date(Date.now() - SESSION_CONFIG.ADMIN_GRACE_PERIOD_MS)) {
       await sessionRecord.destroy();
       return res
         .status(401)
@@ -279,7 +279,7 @@ const extendSession = async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 30 * 60 * 1000, // 30 minutes
+      maxAge: SESSION_CONFIG.ADMIN_GRACE_PERIOD_MS,
     });
 
     // Update DB timestamp to slide the 4-hour window
